@@ -530,9 +530,19 @@ export default function App() {
       {/* Top Nav */}
       <div style={{ background: "#0a0e1a", borderBottom: "1px solid #1a2035", padding: "0 20px", display: "flex", alignItems: "center", gap: 24, height: 52 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 28, height: 28, background: "linear-gradient(135deg,#00d4ff,#0066ff)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: 14, fontWeight: 900, color: "#fff" }}>◈</span>
-          </div>
+          {/* ArcDex Logo - Arc + Open D */}
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#00d4ff" />
+                <stop offset="100%" stopColor="#0066ff" />
+              </linearGradient>
+            </defs>
+            {/* Left arc - tall arch shape */}
+            <path d="M7 30 Q7 4 17 4 Q27 4 27 30" stroke="url(#logoGrad)" strokeWidth="3" strokeLinecap="round" fill="none"/>
+            {/* Open D on the right - longer and not closed on left */}
+            <path d="M14 13 Q28 13 28 21 Q28 29 14 29" stroke="url(#logoGrad)" strokeWidth="3" strokeLinecap="round" fill="none"/>
+          </svg>
           <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: "#fff", fontFamily: "'Courier New', monospace" }}>ArcDex</span>
         </div>
 
