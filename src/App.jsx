@@ -530,18 +530,31 @@ export default function App() {
       {/* Top Nav */}
       <div style={{ background: "#0a0e1a", borderBottom: "1px solid #1a2035", padding: "0 20px", display: "flex", alignItems: "center", gap: 24, height: 52 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* ArcDex Logo - Arc + Open D */}
-          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* ArcDex Logo - Concept 1 Minimalist */}
+          <svg width="38" height="40" viewBox="0 0 420 440" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#00d4ff" />
-                <stop offset="100%" stopColor="#0066ff" />
+              <linearGradient id="archGrad1" x1="70" y1="40" x2="200" y2="420" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#ffffff"/>
+                <stop offset="30%" stopColor="#eef2fa"/>
+                <stop offset="65%" stopColor="#c0cfe8"/>
+                <stop offset="100%" stopColor="#90a8cc"/>
               </linearGradient>
+              <linearGradient id="dGrad1" x1="170" y1="200" x2="360" y2="430" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#ffffff"/>
+                <stop offset="30%" stopColor="#e8f0f8"/>
+                <stop offset="65%" stopColor="#b8cce0"/>
+                <stop offset="100%" stopColor="#8899bb"/>
+              </linearGradient>
+              <filter id="logoShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="5" stdDeviation="8" floodColor="rgba(0,0,30,0.4)"/>
+              </filter>
             </defs>
-            {/* Left arc - tall arch shape */}
-            <path d="M7 30 Q7 4 17 4 Q27 4 27 30" stroke="url(#logoGrad)" strokeWidth="3" strokeLinecap="round" fill="none"/>
-            {/* Open D on the right - longer and not closed on left */}
-            <path d="M14 13 Q28 13 28 21 Q28 29 14 29" stroke="url(#logoGrad)" strokeWidth="3" strokeLinecap="round" fill="none"/>
+            <path d="M 62 420 L 62 185 Q 62 38 175 38 Q 288 38 288 185 L 288 222 Q 282 198 260 190 L 242 186 Q 240 90 175 90 Q 110 90 108 186 L 106 420 Z"
+              fill="url(#archGrad1)" filter="url(#logoShadow)"/>
+            <path d="M 106 420 L 106 190 Q 108 115 145 100 Q 118 114 114 190 L 114 420 Z" fill="rgba(255,255,255,0.15)"/>
+            <path d="M 165 240 L 165 278 L 237 278 Q 287 278 287 338 Q 287 398 237 398 L 200 398 L 200 420 L 242 420 Q 340 420 340 338 Q 340 240 242 240 Z"
+              fill="url(#dGrad1)" filter="url(#logoShadow)"/>
+            <path d="M 167 243 L 240 243 Q 307 243 327 295 Q 303 250 245 247 L 167 247 Z" fill="rgba(255,255,255,0.18)"/>
           </svg>
           <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: "#fff", fontFamily: "'Courier New', monospace" }}>ArcDex</span>
         </div>
