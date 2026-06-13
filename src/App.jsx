@@ -1,5 +1,41 @@
 import { useState, useEffect, useRef } from "react";
 
+// ── ArcDex Smart Contract ──
+const ARCDEX_ADDRESS = "0x6C106f7031E781F7c52949D0312eD3dbD62d0E43";
+const USDC_ADDRESS = "0x3600000000000000000000000000000000000000"; // Arc Testnet USDC ERC-20 interface, 6 decimals
+
+// Contract ABI — the functions we need to call
+const ARCDEX_ABI = [
+  "function openPosition(string market, bool isLong, uint256 collateral, uint256 leverage) returns (uint256)",
+  "function closePosition(uint256 positionId)",
+  "function getTraderPositions(address trader) view returns (uint256[])",
+  "function getPosition(uint256 positionId) view returns (tuple(address trader, string market, bool isLong, uint256 collateral, uint256 leverage, uint256 entryPrice, uint256 size, uint256 openedAt, bool isOpen))",
+  "function calculatePnL(uint256 positionId, uint256 currentPrice) view returns (int256)",
+];
+
+const USDC_ABI = [
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+];
+
+// Encode function call manually (no ethers.js needed)
+function encodeFunctionCall(signature, params) {
+  const crypto = window.crypto || window.msCrypto;
+  const enc = new TextEncoder();
+  const sigHash = Array.from(new Uint8Array(
+    crypto.subtle ? enc.encode(signature) : enc.encode(signature)
+  ));
+  return "0x" + signature.slice(0, 8);
+}
+
+// Call contract via MetaMask
+async function callContract(to, data) {
+  return await window.ethereum.request({
+    method: "eth_sendTransaction",
+    params: [{ from: (await window.ethereum.request({ method: "eth_accounts" }))[0], to, data, gas: "0x7A120" }],
+  });
+}
+
 const PAIRS = ["BTC-USDC", "ETH-USDC", "SOL-USDC", "ARB-USDC", "BNB-USDC"];
 
 const PRICES = {
@@ -218,6 +254,8 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false }) {
   const [size, setSize] = useState("");
   const [leverage, setLeverage] = useState(10);
   const [limitPrice, setLimitPrice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [txStatus, setTxStatus] = useState("");
   const { price } = PRICES[pair];
   const asset = pair.split("-")[0];
 
@@ -226,6 +264,65 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false }) {
   const liqPrice = size && side === "long"
     ? (price * (1 - 1 / leverage + 0.005)).toFixed(price > 100 ? 1 : 4)
     : size ? (price * (1 + 1 / leverage - 0.005)).toFixed(price > 100 ? 1 : 4) : "—";
+
+  const handleSubmit = async () => {
+    if (!connected) { setTxStatus("Please connect your wallet first!"); return; }
+    if (!size || parseFloat(size) <= 0) { setTxStatus("Please enter a size!"); return; }
+
+    try {
+      setIsSubmitting(true);
+      setTxStatus("Approving USDC...");
+
+      const accounts = await window.ethereum.request({ method: "eth_accounts" });
+      const from = accounts[0];
+
+      // Collateral in USDC (6 decimals for Arc ERC-20 USDC interface)
+      const collateralRaw = Math.floor(parseFloat(size) * price * 1e6);
+      const totalRaw = Math.floor(collateralRaw * leverage);
+      const collateralHex256 = collateralRaw.toString(16).padStart(64, "0");
+      const totalHex256 = totalRaw.toString(16).padStart(64, "0");
+
+      // Step 1: Approve USDC spending — function selector for approve(address,uint256) = 0x095ea7b3
+      const approveData = "0x095ea7b3" +
+        ARCDEX_ADDRESS.slice(2).padStart(64, "0") +
+        totalHex256;
+
+      await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [{ from, to: USDC_ADDRESS, data: approveData, gas: "0x15F90" }],
+      });
+
+      setTxStatus("Opening position...");
+
+      // Step 2: Open position on ArcDex contract
+      const marketName = asset;
+      const isLong = side === "long";
+      const funcSelector = "0x4f6e7b7a";
+      const isLongHex = isLong ? "1".padStart(64, "0") : "0".padStart(64, "0");
+      const leverageHex = leverage.toString(16).padStart(64, "0");
+
+      // Encode string parameter
+      const marketBytes = Array.from(new TextEncoder().encode(marketName));
+      const marketOffset = "80".padStart(64, "0");
+      const marketLength = marketBytes.length.toString(16).padStart(64, "0");
+      const marketData = marketBytes.map(b => b.toString(16).padStart(2, "0")).join("").padEnd(64, "0");
+
+      const openData = funcSelector + marketOffset + isLongHex + collateralHex256 + leverageHex + marketLength + marketData;
+
+      const tx = await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [{ from, to: ARCDEX_ADDRESS, data: openData, gas: "0x7A120" }],
+      });
+
+      setTxStatus(`✅ Position opened! TX: ${tx.slice(0, 10)}...`);
+      setSize("");
+
+    } catch (err) {
+      setTxStatus(`❌ ${err.message || "Transaction failed"}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16, height: "100%", boxSizing: "border-box" }}>
@@ -309,16 +406,24 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false }) {
         ))}
       </div>
 
+      {/* TX Status */}
+      {txStatus && (
+        <div style={{ fontSize: 11, color: txStatus.startsWith("✅") ? "#00ff88" : txStatus.startsWith("❌") ? "#ff4848" : "#00d4ff", fontFamily: "'Courier New', monospace", textAlign: "center", padding: "6px 0" }}>
+          {txStatus}
+        </div>
+      )}
+
       {/* Submit */}
-      <button style={{
-        padding: "13px 0", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700,
+      <button onClick={handleSubmit} disabled={isSubmitting} style={{
+        padding: "13px 0", border: "none", borderRadius: 8, cursor: isSubmitting ? "not-allowed" : "pointer", fontWeight: 700,
         fontSize: 14, fontFamily: "'Courier New', monospace", letterSpacing: 1.5,
-        background: side === "long" ? "linear-gradient(135deg,#00ff88,#00c969)" : "linear-gradient(135deg,#ff4848,#cc2020)",
-        color: "#0a0e1a", transition: "opacity 0.15s",
+        background: isSubmitting ? "#1e2d4a" : side === "long" ? "linear-gradient(135deg,#00ff88,#00c969)" : "linear-gradient(135deg,#ff4848,#cc2020)",
+        color: isSubmitting ? "#4a5568" : "#0a0e1a", transition: "opacity 0.15s",
+        opacity: isSubmitting ? 0.7 : 1,
       }}
-        onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
-        onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-        {side === "long" ? "▲" : "▼"} {orderType.toUpperCase()} {side.toUpperCase()} {asset}
+        onMouseEnter={e => { if (!isSubmitting) e.currentTarget.style.opacity = "0.85"; }}
+        onMouseLeave={e => e.currentTarget.style.opacity = isSubmitting ? "0.7" : "1"}>
+        {isSubmitting ? "Processing..." : `${side === "long" ? "▲" : "▼"} ${orderType.toUpperCase()} ${side.toUpperCase()} ${asset}`}
       </button>
     </div>
   );
