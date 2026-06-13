@@ -1,40 +1,17 @@
 import { useState, useEffect, useRef } from "react";
+import { ethers } from "ethers";
 
 // ── ArcDex Smart Contract ──
 const ARCDEX_ADDRESS = "0x6C106f7031E781F7c52949D0312eD3dbD62d0E43";
-const USDC_ADDRESS = "0x3600000000000000000000000000000000000000"; // Arc Testnet USDC ERC-20 interface, 6 decimals
 
-// Contract ABI — the functions we need to call
+// Contract ABI
 const ARCDEX_ABI = [
-  "function openPosition(string market, bool isLong, uint256 collateral, uint256 leverage) returns (uint256)",
+  "function openPosition(string market, bool isLong, uint256 collateral, uint256 leverage) payable returns (uint256)",
   "function closePosition(uint256 positionId)",
   "function getTraderPositions(address trader) view returns (uint256[])",
   "function getPosition(uint256 positionId) view returns (tuple(address trader, string market, bool isLong, uint256 collateral, uint256 leverage, uint256 entryPrice, uint256 size, uint256 openedAt, bool isOpen))",
   "function calculatePnL(uint256 positionId, uint256 currentPrice) view returns (int256)",
 ];
-
-const USDC_ABI = [
-  "function approve(address spender, uint256 amount) returns (bool)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-];
-
-// Encode function call manually (no ethers.js needed)
-function encodeFunctionCall(signature, params) {
-  const crypto = window.crypto || window.msCrypto;
-  const enc = new TextEncoder();
-  const sigHash = Array.from(new Uint8Array(
-    crypto.subtle ? enc.encode(signature) : enc.encode(signature)
-  ));
-  return "0x" + signature.slice(0, 8);
-}
-
-// Call contract via MetaMask
-async function callContract(to, data) {
-  return await window.ethereum.request({
-    method: "eth_sendTransaction",
-    params: [{ from: (await window.ethereum.request({ method: "eth_accounts" }))[0], to, data, gas: "0x7A120" }],
-  });
-}
 
 const PAIRS = ["BTC-USDC", "ETH-USDC", "SOL-USDC", "ARB-USDC", "BNB-USDC"];
 
@@ -96,8 +73,6 @@ function CandleChart({ pair, currentPrice }) {
     const data = candles.current;
 
     ctx.clearRect(0, 0, W, H);
-
-    // Background
     ctx.fillStyle = "#0a0e1a";
     ctx.fillRect(0, 0, W, H);
 
@@ -114,7 +89,6 @@ function CandleChart({ pair, currentPrice }) {
     const candleW = Math.max(2, (chartW / data.length) * 0.7);
     const gap = chartW / data.length;
 
-    // Grid lines
     ctx.strokeStyle = "#1a2035";
     ctx.lineWidth = 1;
     for (let i = 0; i <= 5; i++) {
@@ -130,7 +104,6 @@ function CandleChart({ pair, currentPrice }) {
       ctx.fillText(price.toFixed(price > 100 ? 1 : 4), W - padR + 5, y + 4);
     }
 
-    // Volume bars
     const maxVol = Math.max(...data.map((c) => c.v));
     data.forEach((c, i) => {
       const x = padL + i * gap + gap / 2;
@@ -140,7 +113,6 @@ function CandleChart({ pair, currentPrice }) {
       ctx.fillRect(x - candleW / 2, padT + chartH - volH, candleW, volH);
     });
 
-    // Candles
     data.forEach((c, i) => {
       const x = padL + i * gap + gap / 2;
       const isUp = c.c >= c.o;
@@ -160,7 +132,6 @@ function CandleChart({ pair, currentPrice }) {
       ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
     });
 
-    // Current price line
     const lastClose = data[data.length - 1].c;
     const lineY = toY(lastClose);
     ctx.strokeStyle = "#00d4ff";
@@ -212,7 +183,6 @@ function OrderBook({ pair }) {
         ))}
       </div>
       <div style={{ flex: 1, overflow: "hidden" }}>
-        {/* Asks */}
         {book.asks.map((row, i) => (
           <div key={i} style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "2px 10px", cursor: "pointer" }}
             onMouseEnter={e => e.currentTarget.style.background = "#111827"}
@@ -224,7 +194,6 @@ function OrderBook({ pair }) {
           </div>
         ))}
 
-        {/* Spread */}
         <div style={{ padding: "6px 10px", borderTop: "1px solid #1a2035", borderBottom: "1px solid #1a2035", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 14, fontWeight: "bold", color: price > 0 ? "#00ff88" : "#ff4848" }}>
             {price.toLocaleString(undefined, { minimumFractionDigits: price > 100 ? 1 : 4 })}
@@ -232,7 +201,6 @@ function OrderBook({ pair }) {
           <span style={{ fontSize: 10, color: "#4a5568" }}>Spread 0.01%</span>
         </div>
 
-        {/* Bids */}
         {book.bids.map((row, i) => (
           <div key={i} style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "2px 10px", cursor: "pointer" }}
             onMouseEnter={e => e.currentTarget.style.background = "#111827"}
@@ -248,7 +216,29 @@ function OrderBook({ pair }) {
   );
 }
 
-function TradePanel({ pair, usdcBalance = "0.00", connected = false }) {
+// Arc Testnet configuration
+const ARC_TESTNET = {
+  chainId: "0x4CCE52",
+  chainName: "Arc Testnet",
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+  rpcUrls: ["https://rpc.testnet.arc.network"],
+  blockExplorerUrls: ["https://testnet.arcscan.app"],
+};
+
+async function fetchUSDCBalance(walletAddress) {
+  try {
+    const result = await window.ethereum.request({
+      method: "eth_getBalance",
+      params: [walletAddress, "latest"],
+    });
+    const raw = parseInt(result, 16);
+    return (raw / 1e18).toFixed(2);
+  } catch {
+    return "0.00";
+  }
+}
+
+function TradePanel({ pair, usdcBalance = "0.00", connected = false, prices, onPositionOpened }) {
   const [side, setSide] = useState("long");
   const [orderType, setOrderType] = useState("market");
   const [size, setSize] = useState("");
@@ -256,7 +246,8 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false }) {
   const [limitPrice, setLimitPrice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [txStatus, setTxStatus] = useState("");
-  const { price } = PRICES[pair];
+
+  const { price } = prices[pair];
   const asset = pair.split("-")[0];
 
   const notional = size ? (parseFloat(size) * price * leverage).toFixed(2) : "0.00";
@@ -271,54 +262,55 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false }) {
 
     try {
       setIsSubmitting(true);
-      setTxStatus("Approving USDC...");
+      setTxStatus("Waiting for MetaMask confirmation...");
 
-      const accounts = await window.ethereum.request({ method: "eth_accounts" });
-      const from = accounts[0];
+      // Use ethers.js to talk to the contract properly
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(ARCDEX_ADDRESS, ARCDEX_ABI, signer);
 
-      // Collateral in USDC (6 decimals for Arc ERC-20 USDC interface)
-      const collateralRaw = Math.floor(parseFloat(size) * price * 1e6);
-      const totalRaw = Math.floor(collateralRaw * leverage);
-      const collateralHex256 = collateralRaw.toString(16).padStart(64, "0");
-      const totalHex256 = totalRaw.toString(16).padStart(64, "0");
-
-      // Step 1: Approve USDC spending — function selector for approve(address,uint256) = 0x095ea7b3
-      const approveData = "0x095ea7b3" +
-        ARCDEX_ADDRESS.slice(2).padStart(64, "0") +
-        totalHex256;
-
-      await window.ethereum.request({
-        method: "eth_sendTransaction",
-        params: [{ from, to: USDC_ADDRESS, data: approveData, gas: "0x15F90" }],
-      });
-
-      setTxStatus("Opening position...");
-
-      // Step 2: Open position on ArcDex contract
       const marketName = asset;
       const isLong = side === "long";
-      const funcSelector = "0x4f6e7b7a";
-      const isLongHex = isLong ? "1".padStart(64, "0") : "0".padStart(64, "0");
-      const leverageHex = leverage.toString(16).padStart(64, "0");
 
-      // Encode string parameter
-      const marketBytes = Array.from(new TextEncoder().encode(marketName));
-      const marketOffset = "80".padStart(64, "0");
-      const marketLength = marketBytes.length.toString(16).padStart(64, "0");
-      const marketData = marketBytes.map(b => b.toString(16).padStart(2, "0")).join("").padEnd(64, "0");
+      // Collateral = size * price, in wei (18 decimals for Arc native USDC)
+      const collateralWei = ethers.parseUnits((parseFloat(size) * price).toFixed(6), 18);
+      const leverageBN = BigInt(leverage);
 
-      const openData = funcSelector + marketOffset + isLongHex + collateralHex256 + leverageHex + marketLength + marketData;
+      // Send transaction — collateral sent as native value (no ERC-20 approve needed)
+      const tx = await contract.openPosition(
+        marketName,
+        isLong,
+        collateralWei,
+        leverageBN,
+        { value: collateralWei }
+      );
 
-      const tx = await window.ethereum.request({
-        method: "eth_sendTransaction",
-        params: [{ from, to: ARCDEX_ADDRESS, data: openData, gas: "0x7A120" }],
-      });
+      setTxStatus("Transaction sent! Waiting for confirmation...");
+      const receipt = await tx.wait();
 
-      setTxStatus(`✅ Position opened! TX: ${tx.slice(0, 10)}...`);
+      // Add position to the panel immediately
+      const newPosition = {
+        pair,
+        side,
+        size: parseFloat(size),
+        entry: price,
+        mark: price,
+        lev: leverage,
+        pnl: 0,
+        pnlPct: 0,
+        txHash: receipt.hash,
+      };
+      onPositionOpened(newPosition);
+
+      setTxStatus(`✅ Position opened! TX: ${receipt.hash.slice(0, 10)}...`);
       setSize("");
 
     } catch (err) {
-      setTxStatus(`❌ ${err.message || "Transaction failed"}`);
+      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+        setTxStatus("❌ Transaction rejected in MetaMask.");
+      } else {
+        setTxStatus(`❌ ${err.reason || err.message || "Transaction failed"}`);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -429,11 +421,7 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false }) {
   );
 }
 
-function Positions() {
-  const positions = [
-    { pair: "BTC-USDC", side: "long", size: 0.12, entry: 107200, mark: 108432.5, lev: 10, pnl: 147.9, pnlPct: 1.15 },
-    { pair: "ETH-USDC", side: "short", size: 1.5, entry: 3900, mark: 3842.1, lev: 5, pnl: 86.85, pnlPct: 2.23 },
-  ];
+function Positions({ positions, onClosePosition, prices }) {
   const [tab, setTab] = useState("positions");
 
   return (
@@ -450,48 +438,62 @@ function Positions() {
         ))}
       </div>
       {tab === "positions" ? (
-        <div style={{ flex: 1, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Courier New', monospace" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid #1a2035" }}>
-                {["Market", "Side", "Size", "Entry", "Mark", "Lev", "PnL", ""].map((h) => (
-                  <th key={h} style={{ padding: "8px 12px", fontSize: 10, color: "#4a5568", textAlign: "left", fontWeight: 500 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {positions.map((p, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #0d1526" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#0d1526"}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef", fontWeight: 700 }}>{p.pair}</td>
-                  <td style={{ padding: "10px 12px" }}>
-                    <span style={{ fontSize: 11, color: p.side === "long" ? "#00ff88" : "#ff4848", background: p.side === "long" ? "rgba(0,255,136,0.1)" : "rgba(255,72,72,0.1)", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>{p.side.toUpperCase()}</span>
-                  </td>
-                  <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef" }}>{p.size}</td>
-                  <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef" }}>${p.entry.toLocaleString()}</td>
-                  <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef" }}>${p.mark.toLocaleString()}</td>
-                  <td style={{ padding: "10px 12px", fontSize: 12, color: "#00d4ff" }}>{p.lev}x</td>
-                  <td style={{ padding: "10px 12px" }}>
-                    <div style={{ fontSize: 12, color: p.pnl >= 0 ? "#00ff88" : "#ff4848", fontWeight: 700 }}>
-                      {p.pnl >= 0 ? "+" : ""}${p.pnl.toFixed(2)}
-                    </div>
-                    <div style={{ fontSize: 10, color: p.pnl >= 0 ? "#00cc66" : "#cc3333" }}>
-                      {p.pnl >= 0 ? "+" : ""}{p.pnlPct}%
-                    </div>
-                  </td>
-                  <td style={{ padding: "10px 12px" }}>
-                    <button style={{ background: "none", border: "1px solid #1e2d4a", borderRadius: 4, color: "#ff4848", fontSize: 10, fontFamily: "'Courier New', monospace", cursor: "pointer", padding: "3px 10px" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "rgba(255,72,72,0.1)"}
-                      onMouseLeave={e => e.currentTarget.style.background = "none"}>
-                      Close
-                    </button>
-                  </td>
+        positions.length === 0 ? (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 12, color: "#4a5568", fontFamily: "'Courier New', monospace" }}>No open positions</span>
+          </div>
+        ) : (
+          <div style={{ flex: 1, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Courier New', monospace" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #1a2035" }}>
+                  {["Market", "Side", "Size", "Entry", "Mark", "Lev", "PnL", ""].map((h) => (
+                    <th key={h} style={{ padding: "8px 12px", fontSize: 10, color: "#4a5568", textAlign: "left", fontWeight: 500 }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {positions.map((p, i) => {
+                  const markPrice = prices[p.pair]?.price || p.entry;
+                  const pnl = p.side === "long"
+                    ? (markPrice - p.entry) * p.size * p.lev
+                    : (p.entry - markPrice) * p.size * p.lev;
+                  const pnlPct = ((pnl / (p.entry * p.size)) * 100).toFixed(2);
+
+                  return (
+                    <tr key={i} style={{ borderBottom: "1px solid #0d1526" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#0d1526"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef", fontWeight: 700 }}>{p.pair}</td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <span style={{ fontSize: 11, color: p.side === "long" ? "#00ff88" : "#ff4848", background: p.side === "long" ? "rgba(0,255,136,0.1)" : "rgba(255,72,72,0.1)", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>{p.side.toUpperCase()}</span>
+                      </td>
+                      <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef" }}>{p.size}</td>
+                      <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef" }}>${p.entry.toLocaleString()}</td>
+                      <td style={{ padding: "10px 12px", fontSize: 12, color: "#c8d6ef" }}>${markPrice.toLocaleString()}</td>
+                      <td style={{ padding: "10px 12px", fontSize: 12, color: "#00d4ff" }}>{p.lev}x</td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <div style={{ fontSize: 12, color: pnl >= 0 ? "#00ff88" : "#ff4848", fontWeight: 700 }}>
+                          {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+                        </div>
+                        <div style={{ fontSize: 10, color: pnl >= 0 ? "#00cc66" : "#cc3333" }}>
+                          {pnl >= 0 ? "+" : ""}{pnlPct}%
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <button onClick={() => onClosePosition(i)} style={{ background: "none", border: "1px solid #1e2d4a", borderRadius: 4, color: "#ff4848", fontSize: 10, fontFamily: "'Courier New', monospace", cursor: "pointer", padding: "3px 10px" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "rgba(255,72,72,0.1)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                          Close
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       ) : (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <span style={{ fontSize: 12, color: "#4a5568", fontFamily: "'Courier New', monospace" }}>No open {tab}</span>
@@ -501,32 +503,6 @@ function Positions() {
   );
 }
 
-// Arc Testnet configuration
-const ARC_TESTNET = {
-  chainId: "0x4CCE52", // 5042002 in hex
-  chainName: "Arc Testnet",
-  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: ["https://rpc.testnet.arc.network"],
-  blockExplorerUrls: ["https://testnet.arcscan.app"],
-};
-
-// USDC contract address on Arc Testnet (system contract)
-const USDC_CONTRACT = "0x3600000000000000000000000000000000000000";
-
-async function fetchUSDCBalance(walletAddress) {
-  try {
-    // On Arc, USDC is the native token - read it like ETH balance
-    const result = await window.ethereum.request({
-      method: "eth_getBalance",
-      params: [walletAddress, "latest"],
-    });
-    const raw = parseInt(result, 16);
-    return (raw / 1e18).toFixed(2);
-  } catch {
-    return "0.00";
-  }
-}
-
 export default function App() {
   const [pair, setPair] = useState("BTC-USDC");
   const [connected, setConnected] = useState(false);
@@ -534,10 +510,9 @@ export default function App() {
   const [walletError, setWalletError] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [usdcBalance, setUsdcBalance] = useState("0.00");
-  const [tick, setTick] = useState(0);
   const [prices, setPrices] = useState(PRICES);
+  const [positions, setPositions] = useState([]);
 
-  // Auto reconnect if wallet was previously connected
   useEffect(() => {
     if (window.ethereum) {
       window.ethereum.request({ method: "eth_accounts" }).then(async (accounts) => {
@@ -572,16 +547,13 @@ export default function App() {
     }
     try {
       setIsConnecting(true);
-      // Request wallet connection
       const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      // Switch to Arc Testnet
       try {
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
           params: [{ chainId: ARC_TESTNET.chainId }],
         });
       } catch (switchError) {
-        // If Arc Testnet not added yet, add it automatically
         if (switchError.code === 4902) {
           await window.ethereum.request({
             method: "wallet_addEthereumChain",
@@ -606,6 +578,14 @@ export default function App() {
     setUsdcBalance("0.00");
   };
 
+  const handlePositionOpened = (newPosition) => {
+    setPositions((prev) => [newPosition, ...prev]);
+  };
+
+  const handleClosePosition = (index) => {
+    setPositions((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const shortAddress = walletAddress
     ? walletAddress.slice(0, 6) + "..." + walletAddress.slice(-4)
     : "";
@@ -620,11 +600,9 @@ export default function App() {
         });
         return next;
       });
-      setTick((t) => t + 1);
     }, 1500);
     return () => clearInterval(interval);
   }, []);
-
 
   const { price, change, high, low } = prices[pair];
   const asset = pair.split("-")[0];
@@ -635,7 +613,6 @@ export default function App() {
       {/* Top Nav */}
       <div style={{ background: "#0a0e1a", borderBottom: "1px solid #1a2035", padding: "0 20px", display: "flex", alignItems: "center", gap: 24, height: 52 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* ArcDex Logo - Concept 1 Minimalist */}
           <svg width="38" height="40" viewBox="0 0 420 440" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="archGrad1" x1="70" y1="40" x2="200" y2="420" gradientUnits="userSpaceOnUse">
@@ -686,20 +663,10 @@ export default function App() {
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#00ff88", boxShadow: "0 0 6px #00ff88" }} />
                   <span style={{ fontSize: 12, color: "#00ff88", fontFamily: "'Courier New', monospace", fontWeight: 700 }}>{shortAddress}</span>
                 </div>
-                <button onClick={disconnectWallet} style={{
-                  padding: "7px 14px", borderRadius: 6, border: "1px solid #1e2d4a", cursor: "pointer",
-                  background: "transparent", color: "#ff4848", fontSize: 11,
-                  fontFamily: "'Courier New', monospace", transition: "all 0.15s",
-                }}>Disconnect</button>
+                <button onClick={disconnectWallet} style={{ padding: "7px 14px", borderRadius: 6, border: "1px solid #1e2d4a", cursor: "pointer", background: "transparent", color: "#ff4848", fontSize: 11, fontFamily: "'Courier New', monospace", transition: "all 0.15s" }}>Disconnect</button>
               </div>
             ) : (
-              <button onClick={connectWallet} disabled={isConnecting} style={{
-                padding: "7px 18px", borderRadius: 6, border: "none", cursor: "pointer",
-                background: isConnecting ? "#1e2d4a" : "linear-gradient(135deg,#00d4ff,#0066ff)",
-                color: "#fff", fontSize: 12, fontWeight: 700,
-                fontFamily: "'Courier New', monospace", transition: "all 0.15s",
-                boxShadow: "0 0 16px rgba(0,212,255,0.3)", opacity: isConnecting ? 0.7 : 1,
-              }}>
+              <button onClick={connectWallet} disabled={isConnecting} style={{ padding: "7px 18px", borderRadius: 6, border: "none", cursor: "pointer", background: isConnecting ? "#1e2d4a" : "linear-gradient(135deg,#00d4ff,#0066ff)", color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "'Courier New', monospace", transition: "all 0.15s", boxShadow: "0 0 16px rgba(0,212,255,0.3)", opacity: isConnecting ? 0.7 : 1 }}>
                 {isConnecting ? "Connecting..." : "Connect Wallet"}
               </button>
             )}
@@ -718,10 +685,7 @@ export default function App() {
           const d = prices[p];
           const isActive = p === pair;
           return (
-            <button key={p} onClick={() => setPair(p)} style={{
-              background: isActive ? "#0d1526" : "none", border: "none", borderBottom: isActive ? "2px solid #00d4ff" : "2px solid transparent",
-              padding: "10px 20px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 2, transition: "all 0.15s",
-            }}>
+            <button key={p} onClick={() => setPair(p)} style={{ background: isActive ? "#0d1526" : "none", border: "none", borderBottom: isActive ? "2px solid #00d4ff" : "2px solid transparent", padding: "10px 20px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 2, transition: "all 0.15s" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: isActive ? "#fff" : "#c8d6ef", fontFamily: "'Courier New', monospace" }}>{p.split("-")[0]}</span>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: isActive ? "#fff" : "#c8d6ef", fontFamily: "'Courier New', monospace" }}>{d.price.toLocaleString(undefined, { minimumFractionDigits: d.price > 100 ? 1 : 4 })}</span>
@@ -790,12 +754,22 @@ export default function App() {
           <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a2035" }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#c8d6ef", fontFamily: "'Courier New', monospace" }}>Place Order</span>
           </div>
-          <TradePanel pair={pair} usdcBalance={usdcBalance} connected={connected} />
+          <TradePanel
+            pair={pair}
+            usdcBalance={usdcBalance}
+            connected={connected}
+            prices={prices}
+            onPositionOpened={handlePositionOpened}
+          />
         </div>
 
         {/* Positions */}
         <div style={{ background: "#0a0e1a", gridRow: 2, gridColumn: 1, overflow: "hidden", borderTop: "1px solid #1a2035" }}>
-          <Positions />
+          <Positions
+            positions={positions}
+            onClosePosition={handleClosePosition}
+            prices={prices}
+          />
         </div>
       </div>
 
