@@ -6,8 +6,8 @@ const ARCDEX_ADDRESS = "0xd54624013a4213cd7E9cD5723154d77bda196B42";
 
 // Contract ABI
 const ARCDEX_ABI = [
-  "function openPosition(string market, bool isLong, uint256 collateral, uint256 leverage) payable returns (uint256)",
-  "function closePosition(uint256 positionId)",
+  "function openPosition(string market, bool isLong, uint256 collateral, uint256 leverage, uint256 entryPrice) payable returns (uint256)",
+  "function closePosition(uint256 positionId, uint256 exitPrice)",
   "function getTraderPositions(address trader) view returns (uint256[])",
   "function getPosition(uint256 positionId) view returns (tuple(address trader, string market, bool isLong, uint256 collateral, uint256 leverage, uint256 entryPrice, uint256 size, uint256 openedAt, bool isOpen))",
   "function calculatePnL(uint256 positionId, uint256 currentPrice) view returns (int256)",
