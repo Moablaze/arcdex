@@ -272,21 +272,25 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false, prices, onP
       const marketName = asset;
       const isLong = side === "long";
 
-      // Collateral = size * price, in wei (18 decimals for Arc native USDC)
-      const collateralWei = ethers.parseUnits((parseFloat(size) * price).toFixed(6), 18);
+      // Collateral in 6 decimals (USDC standard)
+      const collateralUSDC = parseFloat(size) * price;
+      const collateralBN = BigInt(Math.round(collateralUSDC * 1e6));
       const leverageBN = BigInt(leverage);
 
-      // Entry price scaled to 8 decimals to match Chainlink format
+      // Entry price scaled to 8 decimals
       const entryPriceBN = BigInt(Math.round(price * 1e8));
 
-      // Send transaction — pass price from frontend, collateral as native value
+      // Native value to send = collateral in 18 decimals (Arc native)
+      const valueWei = ethers.parseUnits(collateralUSDC.toFixed(6), 18);
+
+      // Send transaction
       const tx = await contract.openPosition(
         marketName,
         isLong,
-        collateralWei,
+        collateralBN,
         leverageBN,
         entryPriceBN,
-        { value: collateralWei }
+        { value: valueWei }
       );
 
       setTxStatus("Transaction sent! Waiting for confirmation...");
