@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ethers } from "ethers";
 
 // ── ArcDex Smart Contract ──
-const ARCDEX_ADDRESS = "0x6C106f7031E781F7c52949D0312eD3dbD62d0E43";
+const ARCDEX_ADDRESS = "0xd54624013a4213cd7E9cD5723154d77bda196B42";
 
 // Contract ABI
 const ARCDEX_ABI = [
@@ -276,12 +276,16 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false, prices, onP
       const collateralWei = ethers.parseUnits((parseFloat(size) * price).toFixed(6), 18);
       const leverageBN = BigInt(leverage);
 
-      // Send transaction — collateral sent as native value (no ERC-20 approve needed)
+      // Entry price scaled to 8 decimals to match Chainlink format
+      const entryPriceBN = BigInt(Math.round(price * 1e8));
+
+      // Send transaction — pass price from frontend, collateral as native value
       const tx = await contract.openPosition(
         marketName,
         isLong,
         collateralWei,
         leverageBN,
+        entryPriceBN,
         { value: collateralWei }
       );
 
