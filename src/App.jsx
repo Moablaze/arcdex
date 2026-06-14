@@ -272,7 +272,7 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false, prices, onP
       const marketName = asset;
       const isLong = side === "long";
 
-      // Collateral in 6 decimals (USDC standard)
+      // Collateral in 6 decimals — must match msg.value exactly
       const collateralUSDC = parseFloat(size) * price;
       const collateralBN = BigInt(Math.round(collateralUSDC * 1e6));
       const leverageBN = BigInt(leverage);
@@ -280,8 +280,8 @@ function TradePanel({ pair, usdcBalance = "0.00", connected = false, prices, onP
       // Entry price scaled to 8 decimals
       const entryPriceBN = BigInt(Math.round(price * 1e8));
 
-      // Native value to send = collateral in 18 decimals (Arc native)
-      const valueWei = ethers.parseUnits(collateralUSDC.toFixed(6), 18);
+      // msg.value must equal collateral exactly — both in 6 decimals
+      const valueWei = collateralBN;
 
       // Send transaction
       const tx = await contract.openPosition(
